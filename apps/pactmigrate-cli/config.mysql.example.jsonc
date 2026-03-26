@@ -1,0 +1,26 @@
+{
+  // MySQL / MariaDB example — register go-sql-driver/mysql and use driver name "mysql".
+  "database": {
+    "driver": "mysql",
+    "dsn": "root:password@tcp(127.0.0.1:3306)/pactmigrate?parseTime=true"
+  },
+  "notifications": {
+    // Optional Google Chat incoming webhook URL (run-level summary cards).
+    "google_chat_webhook_url": "",
+    "environment": "dev",
+    "service": "pactmigrate-cli",
+    "database": "pactmigrate"
+  },
+  "migrations": {
+    "source": "dir",
+    "dir": "apps/pactmigrate-cli/migrations",
+    "fs_dir": ".",
+    "dialect": "mysql",
+    "table_name": "schema_migrations",
+    "timeout_seconds": 60,
+    "verify_content": false,
+    "out_of_order_policy": "allow_late",
+    "allow_checksum_mismatch": false,
+    "dry_run": false
+  }
+}

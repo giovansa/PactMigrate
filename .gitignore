@@ -1,0 +1,19 @@
+# Local secrets — generate with: make config
+.idea/
+apps/pactmigrate-cli/config.json
+apps/server/config.json
+ARCHITECTURE.md
+development-phase.md
+
+
+# Built CLI
+/apps/pactmigrate-cli/migrate
+/migrate
+/server
+
+# Dashboard (frontend)
+apps/dashboard/node_modules
+apps/dashboard/dist
+apps/dashboard/.env*
+
+
