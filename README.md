@@ -1,8 +1,63 @@
-# <img src="./assets/PactMigrate-icon.png" alt="PactMigrate" width="28" valign="middle" /> PactMigrate Monorepo
+# <img src="./assets/PactMigrate-icon.png" alt="PactMigrate" width="28" valign="middle" /> PactMigrate
 
-**PactMigrate** helps teams apply **versioned SQL migrations** with predictable ordering, locking, and checks—backed by a small Go library you can embed, a CLI for CI and operators, and an optional **API + dashboard** for plans, drift, and run history.
+![Project Status](https://img.shields.io/badge/status-WIP-orange)
+![Dashboard](https://img.shields.io/badge/dashboard-working-brightgreen)
+![Backend](https://img.shields.io/badge/backend-active-blue)
 
-This monorepo contains:
+<p align="center">
+  <img src="./assets/PactMigrate-icon.png" alt="PactMigrate mascot" width="160" />
+</p>
+
+**PactMigrate** is an open-source **database schema migration** toolkit for **Postgres** and **MySQL**: a Go migration engine + CLI, with an optional API + dashboard for **plan/apply**, **audit history**, and **schema drift detection**.
+
+If you’re looking for a **Go migration tool** that supports **versioned SQL migrations**, predictable ordering, **advisory locking**, checksums, and CI-friendly workflows, PactMigrate is designed for that.
+
+> This repository is a monorepo. Most users start with the CLI (`apps/pactmigrate-cli`) or the core Go package (`packages/core`).
+
+## Features
+
+- **Versioned SQL migrations**: `Timestamp_Hash_Title.sql` naming with deterministic ordering
+- **Safe execution model**: plan/dry-run, apply, checksums, configurable out-of-order policy
+- **Concurrency control**: advisory locking for Postgres/MySQL to prevent concurrent applies
+- **Operational visibility**: optional API + dashboard with run history (audit table) and environment overview
+- **Schema drift detection**: compares expected schema (from a scratch DB) vs live schema
+
+## Dashboard preview
+
+<p align="center">
+  <img src="./assets/dashboard.png" alt="PactMigrate dashboard screenshot" width="960" />
+</p>
+
+## Login screen
+
+<p align="center">
+  <img src="./assets/login.png" alt="PactMigrate dashboard login screen" width="960" />
+</p>
+
+The dashboard currently authenticates using an API key that is defined in `apps/server/config.json`.
+
+## Quickstart (CLI)
+
+Build the CLI:
+
+```bash
+make build
+```
+
+Generate a config from the JSONC example:
+
+```bash
+make config
+```
+
+Plan (dry-run) and apply:
+
+```bash
+./migrate -config apps/pactmigrate-cli/config.json -plan
+./migrate -config apps/pactmigrate-cli/config.json
+```
+
+## Monorepo contents
 
 - Core migration engine (`packages/core`) — parsing, planning, locking, and execution library
 - CLI (`apps/pactmigrate-cli`) — binary with config, notifications, and migration execution
@@ -44,6 +99,8 @@ pact-migrate/
 │       └── config.json          # local only, gitignored
 ├── assets/
 │   └── PactMigrate-icon.png
+│   └── dashboard.png
+│   └── login.png
 ├── packages/
 │   ├── core/                    # migration engine library (loader, planner, locks, store)
 │   └── protocol/                # shared cross-language contracts (placeholder)
