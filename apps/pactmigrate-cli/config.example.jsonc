@@ -1,0 +1,39 @@
+{
+  // Database/sql driver name (e.g. pgx, postgres, mysql) and DSN — see your driver docs.
+  "database": {
+    "driver": "pgx",
+    "dsn": "postgres://postgres:postgres@127.0.0.1:5432/pactmigrate?sslmode=disable"
+  },
+  "notifications": {
+    // Optional Google Chat incoming webhook URL.
+    // When set, PactMigrate sends one "run starting" card and one final "run succeeded/failed" card.
+    "google_chat_webhook_url": "",
+    // Optional card metadata fields.
+    "environment": "dev",
+    "service": "pactmigrate-cli",
+    "database": "pactmigrate"
+  },
+  "migrations": {
+    // "dir" = read .sql from disk at runtime; "embed" = use compiled-in migrations from the binary.
+    "source": "dir",
+    // Host path to the migration folder (absolute or relative to the process cwd) when source is "dir".
+    "dir": "apps/pactmigrate-cli/migrations",
+    // Subpath inside the fs.FS (use "." when .sql files sit directly under "dir").
+    "fs_dir": ".",
+    // "postgres" or "mysql" — selects SQL store DDL, placeholders, and default advisory locker.
+    "dialect": "postgres",
+    // Table that records applied migration keys and content_sha256 checksums.
+    "table_name": "schema_migrations",
+    // Optional deadline (seconds) for Up/Plan when combined with context.
+    "timeout_seconds": 60,
+    // If true, filename ContentHash segment must match SHA-256 of file bytes (see VerifyContent in docs).
+    "verify_content": false,
+    // "allow_late" = run older pending migrations after newer ones were applied (merge scenarios).
+    // "strict" = fail if a pending migration's timestamp is older than any already applied.
+    "out_of_order_policy": "allow_late",
+    // Unsafe: allow migration files to differ from stored DB checksums (recovery only).
+    "allow_checksum_mismatch": false,
+    // If true, same as ./migrate -plan: list pending migrations and exit (no DDL, no hooks).
+    "dry_run": false
+  }
+}

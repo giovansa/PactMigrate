@@ -1,0 +1,116 @@
+{
+  "server": {
+    // HTTP bind address for the API server.
+    // Examples: ":8080", "127.0.0.1:8080"
+    "addr": ":8080",
+    // Per-request read timeout (seconds).
+    "read_timeout_seconds": 15,
+    // Per-request write timeout (seconds).
+    "write_timeout_seconds": 30
+  },
+  "auth": {
+    // If enabled, all API endpoints (except /api/v1/health) require an API key.
+    //
+    // Client headers:
+    // - Authorization: Bearer <key>
+    // - X-API-Key: <key>   (fallback)
+    "enabled": false,
+    "api_keys": [
+      {
+        // Stable identifier for audit logs (who performed the action).
+        "id": "local-operator",
+        // Secret token. Treat like a password. Do not commit real keys.
+        // Recommended format: "pmk_<something>" (any string works).
+        "key": "pmk_local_dev_change_me",
+        // Roles control authorization when auth.enabled=true.
+        //
+        // Supported roles today:
+        // - "viewer": can read dashboard endpoints (environments, dashboard, runs, drift)
+        // - "operator": can plan/apply runs (POST /environments/{name}/run)
+        // - "admin": same as operator + future admin-only operations
+        //
+        // Note: Approval/RBAC workflows will be expanded in a later phase.
+        "roles": ["operator", "viewer"]
+      }
+    ]
+  },
+  "migrations": {
+    // Keep this aligned with pactmigrate-cli migration files.
+    //
+    // source:
+    // - "dir": read migrations from a directory on disk (recommended for server)
+    "source": "dir",
+    // Path to migration directory (relative to repo root when running locally).
+    "dir": "apps/pactmigrate-cli/migrations",
+    // Root inside fs.FS (usually ".").
+    "fs_dir": "."
+  },
+  "environments": [
+    {
+      // Logical environment name. Must be unique.
+      "name": "dev",
+      // database/sql driver name.
+      // Postgres (recommended): "pgx"
+      // MySQL: "mysql"
+      "driver": "pgx",
+      // Live environment DSN (the DB you actually run migrations against).
+      "dsn": "postgres://postgres:postgres@127.0.0.1:5432/dev_db?sslmode=disable",
+      // Used for schema-drift detection (shadow DB containing the expected schema).
+      // This should point to a separate scratch database that can be safely overwritten/reset.
+      "scratch_dsn": "postgres://postgres:postgres@127.0.0.1:5432/dev_db_scratch?sslmode=disable",
+      // SQL dialect affects advisory locks + store semantics:
+      // - "postgres"
+      // - "mysql"
+      "dialect": "postgres",
+      // Migration metadata table used in the LIVE DB (default "schema_migrations").
+      "table_name": "schema_migrations",
+      "policies": {
+        // If true, clients must call plan first, then apply with the returned plan_id.
+        // - POST /api/v1/environments/{name}/run {"mode":"plan"}
+        // - POST /api/v1/environments/{name}/run {"mode":"apply","plan_id":"..."}
+        "require_plan_before_apply": true,
+        // If true, allow late-merged migrations (older timestamp than already-applied).
+        // If false, such migrations are rejected (strict mode).
+        "allow_out_of_order": false,
+        // If true, allow running even if an already-applied migration's stored SHA-256
+        // doesn't match the current file content (unsafe; intended for recovery only).
+        "allow_checksum_mismatch": false,
+        // Alias for allow_out_of_order. If either is true, late migrations are allowed.
+        "allow_late_migrations": false
+      }
+    },
+    {
+      "name": "staging",
+      "driver": "pgx",
+      "dsn": "postgres://postgres:postgres@127.0.0.1:5432/staging_db?sslmode=disable",
+      "scratch_dsn": "postgres://postgres:postgres@127.0.0.1:5432/staging_db_scratch?sslmode=disable",
+      "dialect": "postgres",
+      "table_name": "schema_migrations",
+      "policies": {
+        "require_plan_before_apply": true,
+        "allow_out_of_order": false,
+        "allow_checksum_mismatch": false,
+        "allow_late_migrations": false
+      }
+    },
+    {
+      "name": "prod",
+      "driver": "pgx",
+      // Production DSN. In real deployments, prefer secret references (later phase).
+      "dsn": "postgres://postgres:postgres@127.0.0.1:5432/prod_db?sslmode=disable",
+      "scratch_dsn": "postgres://postgres:postgres@127.0.0.1:5432/prod_db_scratch?sslmode=disable",
+      "dialect": "postgres",
+      "table_name": "schema_migrations",
+      "policies": {
+        // Recommended prod defaults:
+        // - require_plan_before_apply: true
+        // - allow_out_of_order: false
+        // - allow_checksum_mismatch: false
+        "require_plan_before_apply": true,
+        "allow_out_of_order": false,
+        "allow_checksum_mismatch": false,
+        "allow_late_migrations": false
+      }
+    }
+  ]
+}

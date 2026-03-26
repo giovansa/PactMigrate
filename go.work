@@ -1,0 +1,7 @@
+go 1.21
+
+use (
+	./apps/pactmigrate-cli
+	./apps/server
+	./packages/core
+)
