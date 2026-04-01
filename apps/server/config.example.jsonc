@@ -34,6 +34,12 @@
       }
     ]
   },
+  "seeds": {
+    // Seed file root shared with pactmigrate-cli.
+    // Execution remains manual only in the first seed phases.
+    "enabled": true,
+    "dir": "apps/pactmigrate-cli/seeds"
+  },
   "migrations": {
     // Keep this aligned with pactmigrate-cli migration files.
     //

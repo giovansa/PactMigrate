@@ -8,7 +8,7 @@
   <img src="./assets/PactMigrate-icon.png" alt="PactMigrate mascot" width="160" />
 </p>
 
-**PactMigrate** is an open-source **database schema migration** toolkit for **Postgres** and **MySQL**: a Go migration engine + CLI, with an optional API + dashboard for **plan/apply**, **audit history**, and **schema drift detection**.
+**PactMigrate** is an open-source **database schema migration** toolkit for **Postgres** and **MySQL**: a Go migration engine + CLI, with an optional API + dashboard for **plan/apply**, **audit history**, **schema drift detection**, and early **static seeder management**.
 
 If you’re looking for a **Go migration tool** that supports **versioned SQL migrations**, predictable ordering, **advisory locking**, checksums, and CI-friendly workflows, PactMigrate is designed for that.
 
@@ -21,6 +21,9 @@ If you’re looking for a **Go migration tool** that supports **versioned SQL mi
 - **Concurrency control**: advisory locking for Postgres/MySQL to prevent concurrent applies
 - **Operational visibility**: optional API + dashboard with run history (audit table) and environment overview
 - **Schema drift detection**: compares expected schema (from a scratch DB) vs live schema
+- **Static seed inventory**: discover, validate, and inspect JSON seed files from the CLI, API, and dashboard
+- **Required seed plan/apply**: schema-aware planning and idempotent upsert execution for file-backed required seeds
+- **Seed run visibility**: separate seed execution history beside migration run history
 
 ## Dashboard preview
 
@@ -55,6 +58,14 @@ Plan (dry-run) and apply:
 ```bash
 ./migrate -config apps/pactmigrate-cli/config.json -plan
 ./migrate -config apps/pactmigrate-cli/config.json
+```
+
+List, plan, and apply required seeds:
+
+```bash
+./migrate -config apps/pactmigrate-cli/config.json -list-seeds
+./migrate -config apps/pactmigrate-cli/config.json -plan-seeds
+./migrate -config apps/pactmigrate-cli/config.json -apply-seeds
 ```
 
 ## Monorepo contents
@@ -93,10 +104,13 @@ pact-migrate/
 │       ├── embed.go
 │       ├── google_chat_hook.go
 │       ├── migrations/
+│       ├── seeds/                # Phase 0 seeder assets and examples
 │       ├── tools/jsonc2json/
 │       ├── config.example.jsonc
 │       ├── config.mysql.example.jsonc
 │       └── config.json          # local only, gitignored
+├── docs/
+│   └── seeder-spec.md            # Phase 0 seeder contract
 ├── assets/
 │   └── PactMigrate-icon.png
 │   └── dashboard.png
@@ -145,7 +159,11 @@ import pactmigrate "pactmigrate.local/packages/core"
 
 - JSON config generated from JSONC examples
 - File-system migration source (`apps/pactmigrate-cli/migrations`)
+- File-system seed source (`apps/pactmigrate-cli/seeds`)
 - `-plan` dry-run mode
+- `-list-seeds` inventory mode
+- `-plan-seeds` required seed planning
+- `-apply-seeds` required seed execution
 - Google Chat run-level cards (start + final status)
 
 ### Config generation
@@ -179,8 +197,13 @@ make build
 - `GET /api/v1/health`
 - `GET /api/v1/environments`
 - `GET /api/v1/dashboard`
+- `GET /api/v1/seeds`
+- `GET /api/v1/seeds/{seed_id}`
+- `GET /api/v1/seed-runs?limit=20`
 - `GET /api/v1/runs?limit=20`
 - `POST /api/v1/environments/{name}/run` (JSON body: `{"mode":"plan"|"apply","plan_id":"..."}`)
+- `POST /api/v1/environments/{name}/seeds/plan`
+- `POST /api/v1/environments/{name}/seeds/apply`
 - `GET /api/v1/drift/schema?env={name}`
 
 ### Server config
@@ -200,7 +223,7 @@ make build-server
 make run-server
 ```
 
-The dashboard can consume `GET /api/v1/dashboard` for summary cards + migration table, and trigger migration runs through `POST /api/v1/environments/{name}/run`.
+The dashboard can consume `GET /api/v1/dashboard` for summary cards + migration table, trigger migration runs through `POST /api/v1/environments/{name}/run`, inspect static seeds through `GET /api/v1/seeds`, and plan/apply required seeds per environment.
 
 ### Plan/apply workflow (policies)
 
@@ -246,7 +269,26 @@ Current scope/limitations:
 
 #### Run history persistence (audit)
 
-Run history is persisted in each configured environment database in the table `pactmigrate_run_history`. The endpoint `GET /api/v1/runs` reads from this table (across all configured environments).
+Run history is persisted in each configured environment database in the table `pactmigrate_run_history`. The endpoint `GET /api/v1/runs` reads from this table across all configured environments, and `GET /api/v1/seed-runs` filters the same audit store to seed executions.
+
+## Seeder status
+
+The repository currently includes the first implemented seed phases:
+
+- Phase 0: seeder contract, config shape, and file layout
+- Phase 1: read-only seed inventory in CLI, API, and dashboard
+- Phase 2: required seed plan/apply with live schema validation
+- Phase 2.5: seed run history and execution visibility
+
+Current seed scope:
+
+- static file-backed `required` seeds only
+- JSON seed files only
+- manual plan/apply only
+- no delete reconciliation
+- no dashboard editing yet
+
+Seed files live under `apps/pactmigrate-cli/seeds/required/`.
 
 ## Dashboard app
 

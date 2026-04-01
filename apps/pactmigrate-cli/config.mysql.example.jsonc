@@ -11,6 +11,14 @@
     "service": "pactmigrate-cli",
     "database": "pactmigrate"
   },
+  "seeds": {
+    // Phase 0 seeder contract:
+    // - static seeds are JSON only
+    // - required seeds are manual only in early phases
+    // - files live under apps/pactmigrate-cli/seeds
+    "enabled": true,
+    "dir": "apps/pactmigrate-cli/seeds"
+  },
   "migrations": {
     "source": "dir",
     "dir": "apps/pactmigrate-cli/migrations",

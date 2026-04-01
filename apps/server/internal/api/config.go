@@ -38,6 +38,9 @@ func LoadConfig(path string) (*Config, error) {
 	default:
 		return nil, fmt.Errorf("unsupported migrations.source %q in server; use dir", cfg.Migrations.Source)
 	}
+	if cfg.Seeds.Dir == "" {
+		cfg.Seeds.Dir = "apps/pactmigrate-cli/seeds"
+	}
 	if len(cfg.Environments) == 0 {
 		return nil, fmt.Errorf("config must include at least one environment")
 	}

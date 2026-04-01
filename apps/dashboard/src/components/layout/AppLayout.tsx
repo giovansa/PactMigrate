@@ -4,10 +4,11 @@ import { APP_ICON_URL } from "../../constants";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 
-export type NavKey = "migrations" | "more";
+export type NavKey = "migrations" | "seeds" | "more";
 
 const NAV_ITEMS: { id: NavKey; label: string; description: string }[] = [
   { id: "migrations", label: "Migrations", description: "Plans, runs, drift" },
+  { id: "seeds", label: "Seeds", description: "Inventory and validation" },
   { id: "more", label: "More", description: "Coming soon" },
 ];
 
@@ -40,10 +41,12 @@ export function AppLayout({ activeNav, onNavigate, onLogout, onRefresh, loading,
           <p className="mt-1 text-sm text-muted-foreground">
             {activeNav === "migrations"
               ? "Database migration status across environments with run history."
+              : activeNav === "seeds"
+                ? "Static seed inventory, validation status, and Phase 1 seeder foundation."
               : "Space for additional product areas as PactMigrate grows."}
           </p>
         </div>
-        {activeNav === "migrations" ? (
+        {activeNav === "migrations" || activeNav === "seeds" ? (
           <div className="shrink-0">
             <Button variant="secondary" onClick={() => void onRefresh()} disabled={loading}>
               {loading ? "Loading..." : "Refresh"}

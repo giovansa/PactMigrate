@@ -4,6 +4,10 @@ import type {
   RunPlanResponse,
   RunsResponse,
   SchemaDriftResponse,
+  SeedApplyResponse,
+  SeedInventoryEntry,
+  SeedPlanResponse,
+  SeedsResponse,
 } from "../types";
 import { getAPIKey } from "../auth";
 
@@ -61,6 +65,11 @@ export async function getRuns(limit = 20): Promise<RunsResponse> {
   return requestJSON(`/api/v1/runs?${q.toString()}`);
 }
 
+export async function getSeedRuns(limit = 20): Promise<RunsResponse> {
+  const q = new URLSearchParams({ limit: String(limit) });
+  return requestJSON(`/api/v1/seed-runs?${q.toString()}`);
+}
+
 export async function runEnvironment(envName: string): Promise<unknown> {
   const path = `/api/v1/environments/${encodeURIComponent(envName)}/run`;
   return requestJSON(path, { method: "POST" });
@@ -85,5 +94,26 @@ export async function applyEnvironment(envName: string, planId?: string): Promis
 export async function getSchemaDrift(envName: string): Promise<SchemaDriftResponse> {
   const q = new URLSearchParams({ env: envName });
   return requestJSON(`/api/v1/drift/schema?${q.toString()}`);
+}
+
+export async function getSeeds(): Promise<SeedsResponse> {
+  return requestJSON("/api/v1/seeds");
+}
+
+export async function getSeedById(seedId: string): Promise<SeedInventoryEntry> {
+  return requestJSON(`/api/v1/seeds/${encodeURIComponent(seedId)}`);
+}
+
+export async function planSeeds(envName: string): Promise<SeedPlanResponse> {
+  return requestJSON(`/api/v1/environments/${encodeURIComponent(envName)}/seeds/plan`, {
+    method: "POST",
+  });
+}
+
+export async function applySeeds(envName: string, planId?: string): Promise<SeedApplyResponse> {
+  return requestJSON(`/api/v1/environments/${encodeURIComponent(envName)}/seeds/apply`, {
+    method: "POST",
+    body: JSON.stringify({ plan_id: planId }),
+  });
 }
 

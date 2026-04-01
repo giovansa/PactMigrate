@@ -4,9 +4,10 @@ import "net/http"
 
 func New(cfg *Config) (*API, error) {
 	return &API{
-		cfg:        cfg,
-		failures:   make(map[string]map[string]string),
-		latestPlan: make(map[string]planCacheEntry),
+		cfg:            cfg,
+		failures:       make(map[string]map[string]string),
+		latestPlan:     make(map[string]planCacheEntry),
+		latestSeedPlan: make(map[string]planCacheEntry),
 	}, nil
 }
 
@@ -15,7 +16,10 @@ func (s *API) Routes() http.Handler {
 	mux.HandleFunc("/api/v1/health", s.handleHealth)
 	mux.HandleFunc("/api/v1/environments", s.handleEnvironments)
 	mux.HandleFunc("/api/v1/dashboard", s.handleDashboard)
+	mux.HandleFunc("/api/v1/seeds", s.handleSeeds)
+	mux.HandleFunc("/api/v1/seeds/", s.handleSeedDetail)
 	mux.HandleFunc("/api/v1/runs", s.handleRuns)
+	mux.HandleFunc("/api/v1/seed-runs", s.handleSeedRuns)
 	mux.HandleFunc("/api/v1/drift/schema", s.handleSchemaDrift)         // ?env={name}
 	mux.HandleFunc("/api/v1/environments/", s.handleEnvironmentActions) // /api/v1/environments/{env}/run
 	return withJSON(withAuth(s.cfg, mux))

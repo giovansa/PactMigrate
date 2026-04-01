@@ -30,6 +30,8 @@ export type DashboardResponse = {
 export type RunRecord = {
   id: string;
   environment: string;
+  kind?: string;
+  target?: string;
   status: "succeeded" | "failed";
   started_at: string;
   finished_at: string;
@@ -69,5 +71,76 @@ export type SchemaDriftResponse = {
       }>;
     }>;
   };
+};
+
+export type SeedSummary = {
+  total_seeds: number;
+  valid_seeds: number;
+  invalid_seeds: number;
+  required_seeds: number;
+};
+
+export type SeedInventoryEntry = {
+  id: string;
+  kind: string;
+  table: string;
+  description?: string;
+  filename: string;
+  row_count: number;
+  identity_columns: string[];
+  delete_policy: string;
+  supported_environments: string[];
+  validation_issues: SeedValidationIssue[];
+};
+
+export type SeedsResponse = {
+  summary: SeedSummary;
+  seeds: SeedInventoryEntry[];
+};
+
+export type SeedValidationIssue = {
+  code: string;
+  path: string;
+  message: string;
+};
+
+export type SeedPlanEntry = {
+  seed_id: string;
+  filename: string;
+  table: string;
+  row_count: number;
+  insert_count: number;
+  update_count: number;
+  validation_issues: SeedValidationIssue[];
+  actions: Array<{
+    action: string;
+    identity: Record<string, unknown>;
+  }>;
+};
+
+export type SeedPlanResponse = {
+  kind: "seed";
+  mode: "plan";
+  plan_id: string;
+  request_id: string;
+  environment: string;
+  seed_count: number;
+  insert_count: number;
+  update_count: number;
+  validation_issue_count: number;
+  entries: SeedPlanEntry[];
+};
+
+export type SeedApplyResponse = {
+  kind: "seed";
+  status: "succeeded" | "failed";
+  mode: "apply";
+  environment?: string;
+  seed_count?: number;
+  insert_count?: number;
+  update_count?: number;
+  applied_count?: number;
+  entries?: SeedPlanEntry[];
+  error?: string;
 };
 

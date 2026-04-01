@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	pactmigrate "pactmigrate.local/packages/core"
@@ -45,6 +46,30 @@ func (s *API) loadMigrations() ([]pactmigrate.Migration, error) {
 	return migs, nil
 }
 
+func (s *API) loadSeeds() ([]pactmigrate.StaticSeedInventoryEntry, error) {
+	fsys, fsDir, err := s.resolveSeedFS()
+	if err != nil {
+		return nil, err
+	}
+	seeds, err := pactmigrate.LoadStaticSeedInventory(fsys, fsDir)
+	if err != nil {
+		return nil, err
+	}
+	return seeds, nil
+}
+
+func (s *API) loadSeedByID(seedID string) (*pactmigrate.StaticSeedInventoryEntry, error) {
+	fsys, fsDir, err := s.resolveSeedFS()
+	if err != nil {
+		return nil, err
+	}
+	seed, err := pactmigrate.LoadStaticSeedInventoryByID(fsys, fsDir, seedID)
+	if err != nil {
+		return nil, err
+	}
+	return seed, nil
+}
+
 func (s *API) resolveFS() (fs.FS, string, error) {
 	switch s.cfg.Migrations.Source {
 	case "dir":
@@ -63,6 +88,21 @@ func (s *API) resolveFS() (fs.FS, string, error) {
 	default:
 		return nil, "", fmt.Errorf("unsupported migrations.source %q", s.cfg.Migrations.Source)
 	}
+}
+
+func (s *API) resolveSeedFS() (fs.FS, string, error) {
+	abs, err := filepath.Abs(s.cfg.Seeds.Dir)
+	if err != nil {
+		return nil, "", fmt.Errorf("seeds.dir: %w", err)
+	}
+	st, err := os.Stat(abs)
+	if err != nil {
+		return nil, "", fmt.Errorf("seeds.dir: %w", err)
+	}
+	if !st.IsDir() {
+		return nil, "", fmt.Errorf("seeds.dir is not a directory: %s", abs)
+	}
+	return os.DirFS(abs), ".", nil
 }
 
 func (s *API) fetchApplied(ctx context.Context, env EnvironmentConfig) (map[string]pactmigrate.AppliedRecord, error) {
@@ -163,6 +203,8 @@ CREATE TABLE IF NOT EXISTS pactmigrate_run_history (
   run_id TEXT PRIMARY KEY,
   request_id TEXT,
   environment TEXT NOT NULL,
+  kind TEXT,
+  target TEXT,
   status TEXT NOT NULL,
   mode TEXT,
   plan_id TEXT,
@@ -188,6 +230,8 @@ CREATE TABLE IF NOT EXISTS pactmigrate_run_history (
   run_id VARCHAR(255) PRIMARY KEY,
   request_id VARCHAR(255) NULL,
   environment VARCHAR(255) NOT NULL,
+  kind VARCHAR(32) NULL,
+  target VARCHAR(255) NULL,
   status VARCHAR(32) NOT NULL,
   mode VARCHAR(16) NULL,
   plan_id VARCHAR(255) NULL,
@@ -221,6 +265,8 @@ func ensureRunHistoryColumns(ctx context.Context, db *sql.DB, dialect pactmigrat
 	}
 	cols := []col{
 		{name: runHistoryColRequestID, pg: "TEXT", my: "VARCHAR(255) NULL"},
+		{name: "kind", pg: "TEXT", my: "VARCHAR(32) NULL"},
+		{name: "target", pg: "TEXT", my: "VARCHAR(255) NULL"},
 		{name: runHistoryColMode, pg: "TEXT", my: "VARCHAR(16) NULL"},
 		{name: runHistoryColPlanID, pg: "TEXT", my: "VARCHAR(255) NULL"},
 		{name: runHistoryColActorID, pg: "TEXT", my: "VARCHAR(255) NULL"},
@@ -294,12 +340,14 @@ func persistRunRecord(ctx context.Context, env EnvironmentConfig, record runReco
 	case pactmigrate.DialectPostgres:
 		_, err = db.ExecContext(ctx, `
 INSERT INTO pactmigrate_run_history
-  (run_id, request_id, environment, status, mode, plan_id, actor_id, actor_roles, started_at, finished_at, duration_ms, planned_count, applied_count, remaining_count, error_text)
+  (run_id, request_id, environment, kind, target, status, mode, plan_id, actor_id, actor_roles, started_at, finished_at, duration_ms, planned_count, applied_count, remaining_count, error_text)
 VALUES
-  ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+  ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
 ON CONFLICT (run_id) DO UPDATE SET
   request_id = EXCLUDED.request_id,
   environment = EXCLUDED.environment,
+  kind = EXCLUDED.kind,
+  target = EXCLUDED.target,
   status = EXCLUDED.status,
   mode = EXCLUDED.mode,
   plan_id = EXCLUDED.plan_id,
@@ -312,16 +360,18 @@ ON CONFLICT (run_id) DO UPDATE SET
   applied_count = EXCLUDED.applied_count,
   remaining_count = EXCLUDED.remaining_count,
   error_text = EXCLUDED.error_text
-`, record.ID, nullIfEmpty(record.RequestID), record.Environment, record.Status, nullIfEmpty(record.Mode), nullIfEmpty(record.PlanID), nullIfEmpty(record.ActorID), nullIfEmpty(record.ActorRoles), record.StartedAt, record.FinishedAt, record.DurationMillis, record.PlannedCount, record.AppliedCount, record.RemainingCount, nullIfEmpty(record.Error))
+`, record.ID, nullIfEmpty(record.RequestID), record.Environment, nullIfEmpty(record.Kind), nullIfEmpty(record.Target), record.Status, nullIfEmpty(record.Mode), nullIfEmpty(record.PlanID), nullIfEmpty(record.ActorID), nullIfEmpty(record.ActorRoles), record.StartedAt, record.FinishedAt, record.DurationMillis, record.PlannedCount, record.AppliedCount, record.RemainingCount, nullIfEmpty(record.Error))
 	case pactmigrate.DialectMySQL:
 		_, err = db.ExecContext(ctx, `
 INSERT INTO pactmigrate_run_history
-  (run_id, request_id, environment, status, mode, plan_id, actor_id, actor_roles, started_at, finished_at, duration_ms, planned_count, applied_count, remaining_count, error_text)
+  (run_id, request_id, environment, kind, target, status, mode, plan_id, actor_id, actor_roles, started_at, finished_at, duration_ms, planned_count, applied_count, remaining_count, error_text)
 VALUES
-  (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON DUPLICATE KEY UPDATE
   request_id = VALUES(request_id),
   environment = VALUES(environment),
+  kind = VALUES(kind),
+  target = VALUES(target),
   status = VALUES(status),
   mode = VALUES(mode),
   plan_id = VALUES(plan_id),
@@ -334,7 +384,7 @@ ON DUPLICATE KEY UPDATE
   applied_count = VALUES(applied_count),
   remaining_count = VALUES(remaining_count),
   error_text = VALUES(error_text)
-`, record.ID, nullIfEmpty(record.RequestID), record.Environment, record.Status, nullIfEmpty(record.Mode), nullIfEmpty(record.PlanID), nullIfEmpty(record.ActorID), nullIfEmpty(record.ActorRoles), record.StartedAt, record.FinishedAt, record.DurationMillis, record.PlannedCount, record.AppliedCount, record.RemainingCount, nullIfEmpty(record.Error))
+`, record.ID, nullIfEmpty(record.RequestID), record.Environment, nullIfEmpty(record.Kind), nullIfEmpty(record.Target), record.Status, nullIfEmpty(record.Mode), nullIfEmpty(record.PlanID), nullIfEmpty(record.ActorID), nullIfEmpty(record.ActorRoles), record.StartedAt, record.FinishedAt, record.DurationMillis, record.PlannedCount, record.AppliedCount, record.RemainingCount, nullIfEmpty(record.Error))
 	default:
 		return fmt.Errorf("unsupported dialect %q", dialect)
 	}
@@ -344,10 +394,10 @@ ON DUPLICATE KEY UPDATE
 	return nil
 }
 
-func (s *API) listRecentRuns(ctx context.Context, limit int) ([]runRecord, error) {
+func (s *API) listRecentRuns(ctx context.Context, limit int, kind string) ([]runRecord, error) {
 	all := make([]runRecord, 0, limit*len(s.cfg.Environments))
 	for _, env := range s.cfg.Environments {
-		runs, err := listRecentRunsForEnvironment(ctx, env, limit)
+		runs, err := listRecentRunsForEnvironment(ctx, env, limit, kind)
 		if err != nil {
 			return nil, fmt.Errorf("environment %s: %w", env.Name, err)
 		}
@@ -362,7 +412,7 @@ func (s *API) listRecentRuns(ctx context.Context, limit int) ([]runRecord, error
 	return all, nil
 }
 
-func listRecentRunsForEnvironment(ctx context.Context, env EnvironmentConfig, limit int) ([]runRecord, error) {
+func listRecentRunsForEnvironment(ctx context.Context, env EnvironmentConfig, limit int, kind string) ([]runRecord, error) {
 	dialect, err := parseDialect(env.Dialect)
 	if err != nil {
 		return nil, err
@@ -377,16 +427,18 @@ func listRecentRunsForEnvironment(ctx context.Context, env EnvironmentConfig, li
 	}
 
 	query := `
-SELECT run_id, request_id, environment, status, mode, plan_id, actor_id, actor_roles, started_at, finished_at, duration_ms, planned_count, applied_count, remaining_count, error_text
+SELECT run_id, request_id, environment, kind, target, status, mode, plan_id, actor_id, actor_roles, started_at, finished_at, duration_ms, planned_count, applied_count, remaining_count, error_text
 FROM pactmigrate_run_history
+WHERE (? = '' OR kind = ?)
 ORDER BY finished_at DESC
 `
 	var rows *sql.Rows
 	switch dialect {
 	case pactmigrate.DialectPostgres:
-		rows, err = db.QueryContext(ctx, query+"LIMIT $1", limit)
+		query = strings.Replace(query, "WHERE (? = '' OR kind = ?)", "WHERE ($1 = '' OR kind = $2)", 1)
+		rows, err = db.QueryContext(ctx, query+"LIMIT $3", kind, kind, limit)
 	case pactmigrate.DialectMySQL:
-		rows, err = db.QueryContext(ctx, query+"LIMIT ?", limit)
+		rows, err = db.QueryContext(ctx, query+"LIMIT ?", kind, kind, limit)
 	default:
 		return nil, fmt.Errorf("unsupported dialect %q", dialect)
 	}
@@ -400,6 +452,8 @@ ORDER BY finished_at DESC
 		var rr runRecord
 		var errText sql.NullString
 		var requestID sql.NullString
+		var kindCol sql.NullString
+		var target sql.NullString
 		var mode sql.NullString
 		var planID sql.NullString
 		var actorID sql.NullString
@@ -408,6 +462,8 @@ ORDER BY finished_at DESC
 			&rr.ID,
 			&requestID,
 			&rr.Environment,
+			&kindCol,
+			&target,
 			&rr.Status,
 			&mode,
 			&planID,
@@ -425,6 +481,12 @@ ORDER BY finished_at DESC
 		}
 		if requestID.Valid {
 			rr.RequestID = requestID.String
+		}
+		if kindCol.Valid {
+			rr.Kind = kindCol.String
+		}
+		if target.Valid {
+			rr.Target = target.String
 		}
 		if mode.Valid {
 			rr.Mode = mode.String
@@ -450,7 +512,7 @@ ORDER BY finished_at DESC
 }
 
 func (s *API) latestRunFinishedAt(ctx context.Context) (string, error) {
-	runs, err := s.listRecentRuns(ctx, 1)
+	runs, err := s.listRecentRuns(ctx, 1, "")
 	if err != nil {
 		return "", err
 	}
@@ -492,12 +554,31 @@ func (s *API) rememberPlan(envName string) string {
 }
 
 func (s *API) isPlanAccepted(envName, planID string) bool {
+	return isPlanAccepted(s.latestPlan, &s.planMu, envName, planID)
+}
+
+func (s *API) rememberSeedPlan(envName string) string {
+	s.planMu.Lock()
+	defer s.planMu.Unlock()
+	id := fmt.Sprintf("%s-seeds-%d", envName, time.Now().UnixNano())
+	s.latestSeedPlan[envName] = planCacheEntry{
+		PlanID:    id,
+		CreatedAt: time.Now().UTC(),
+	}
+	return id
+}
+
+func (s *API) isSeedPlanAccepted(envName, planID string) bool {
+	return isPlanAccepted(s.latestSeedPlan, &s.planMu, envName, planID)
+}
+
+func isPlanAccepted(cache map[string]planCacheEntry, mu *sync.Mutex, envName, planID string) bool {
 	if strings.TrimSpace(planID) == "" {
 		return false
 	}
-	s.planMu.Lock()
-	defer s.planMu.Unlock()
-	entry, ok := s.latestPlan[envName]
+	mu.Lock()
+	defer mu.Unlock()
+	entry, ok := cache[envName]
 	if !ok {
 		return false
 	}

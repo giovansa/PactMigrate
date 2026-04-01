@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "kind": "required",
+  "id": "core.document-requirements",
+  "table": "document_requirements",
+  "description": "Baseline document requirements used by the application",
+  "identity": {
+    "columns": ["id"]
+  },
+  "delete_policy": "ignore",
+  "rows": [
+    {
+      "id": "ktp",
+      "label": "KTP",
+      "identity_access_code": "ktp",
+      "position": 1,
+      "description": "Government-issued identity card",
+      "type": "identity",
+      "required_by_operator": true,
+      "required_by_user": true
+    },
+    {
+      "id": "npwp",
+      "label": "NPWP",
+      "identity_access_code": "npwp",
+      "position": 2,
+      "description": "Tax identification document",
+      "type": "tax",
+      "required_by_operator": false,
+      "required_by_user": true
+    },
+    {
+      "id": "selfie",
+      "label": "Selfie",
+      "identity_access_code": "selfie",
+      "position": 3,
+      "description": "Selfie photo for identity verification",
+      "type": "photo",
+      "required_by_operator": true,
+      "required_by_user": true
+    }
+  ]
+}

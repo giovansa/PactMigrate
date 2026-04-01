@@ -12,12 +12,18 @@ type Config struct {
 		WriteTimeoutSeconds int    `json:"write_timeout_seconds"`
 	} `json:"server"`
 	Auth       AuthConfig `json:"auth"`
+	Seeds      SeedsConfig `json:"seeds"`
 	Migrations struct {
 		Source string `json:"source"`
 		Dir    string `json:"dir"`
 		FSDir  string `json:"fs_dir"`
 	} `json:"migrations"`
 	Environments []EnvironmentConfig `json:"environments"`
+}
+
+type SeedsConfig struct {
+	Enabled bool   `json:"enabled"`
+	Dir     string `json:"dir"`
 }
 
 type AuthConfig struct {
@@ -56,8 +62,9 @@ type API struct {
 	failureMu sync.RWMutex
 	failures  map[string]map[string]string // env -> migration_key -> error string
 
-	planMu     sync.Mutex
-	latestPlan map[string]planCacheEntry // env -> latest plan (for plan-before-apply)
+	planMu         sync.Mutex
+	latestPlan     map[string]planCacheEntry // env -> latest migration plan
+	latestSeedPlan map[string]planCacheEntry // env -> latest seed plan
 }
 
 type Actor struct {
@@ -74,6 +81,8 @@ type runRecord struct {
 	ID             string    `json:"id"`
 	RequestID      string    `json:"request_id"`
 	Environment    string    `json:"environment"`
+	Kind           string    `json:"kind,omitempty"` // migration|seed
+	Target         string    `json:"target,omitempty"`
 	Status         string    `json:"status"` // succeeded/failed
 	Mode           string    `json:"mode"`   // plan|apply
 	PlanID         string    `json:"plan_id,omitempty"`

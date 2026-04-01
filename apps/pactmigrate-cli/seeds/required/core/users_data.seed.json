@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "kind": "required",
+  "id": "core.users-data",
+  "table": "users_data",
+  "description": "Baseline internal users required by local environments",
+  "identity": {
+    "columns": ["username"]
+  },
+  "delete_policy": "ignore",
+  "rows": [
+    {
+      "username": "admin",
+      "fullname": "System Administrator",
+      "email": "admin@example.local",
+      "password_hash": "seed_admin_placeholder_hash",
+      "is_active": true
+    },
+    {
+      "username": "operator",
+      "fullname": "Operations User",
+      "email": "operator@example.local",
+      "password_hash": "seed_operator_placeholder_hash",
+      "is_active": true
+    }
+  ]
+}

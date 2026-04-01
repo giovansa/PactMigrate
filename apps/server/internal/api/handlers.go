@@ -6,7 +6,9 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"strings"
 	"time"
@@ -81,12 +83,117 @@ func (s *API) handleRuns(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
 
-	hist, err := s.listRecentRuns(ctx, limit)
+	hist, err := s.listRecentRuns(ctx, limit, "")
 	if err != nil {
 		writeError(w, http.StatusBadGateway, fmt.Sprintf("list runs: %v", err))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"runs": hist})
+}
+
+func (s *API) handleSeedRuns(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if s.cfg.Auth.Enabled {
+		a, ok := actorFromContext(r.Context())
+		if !ok || !hasAnyRole(a, "viewer", "operator", "admin") {
+			writeError(w, http.StatusForbidden, "forbidden")
+			return
+		}
+	}
+	limit := 20
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := parsePositiveInt(v, 200); err == nil {
+			limit = n
+		}
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	hist, err := s.listRecentRuns(ctx, limit, "seed")
+	if err != nil {
+		writeError(w, http.StatusBadGateway, fmt.Sprintf("list seed runs: %v", err))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"runs": hist})
+}
+
+func (s *API) handleSeeds(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if s.cfg.Auth.Enabled {
+		a, ok := actorFromContext(r.Context())
+		if !ok || !hasAnyRole(a, "viewer", "operator", "admin") {
+			writeError(w, http.StatusForbidden, "forbidden")
+			return
+		}
+	}
+
+	seeds, err := s.loadSeeds()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	validCount := 0
+	invalidCount := 0
+	requiredCount := 0
+	for _, seed := range seeds {
+		seed.SupportedEnvironments = environmentNames(s.cfg.Environments)
+		if seed.Kind == string(pactmigrate.SeedKindRequired) {
+			requiredCount++
+		}
+		if seed.Valid() {
+			validCount++
+		} else {
+			invalidCount++
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"summary": map[string]any{
+			"total_seeds":    len(seeds),
+			"valid_seeds":    validCount,
+			"invalid_seeds":  invalidCount,
+			"required_seeds": requiredCount,
+		},
+		"seeds": seeds,
+	})
+}
+
+func (s *API) handleSeedDetail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if s.cfg.Auth.Enabled {
+		a, ok := actorFromContext(r.Context())
+		if !ok || !hasAnyRole(a, "viewer", "operator", "admin") {
+			writeError(w, http.StatusForbidden, "forbidden")
+			return
+		}
+	}
+
+	seedID := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/seeds/"), "/")
+	if seedID == "" {
+		writeError(w, http.StatusNotFound, "seed not found")
+		return
+	}
+
+	seed, err := s.loadSeedByID(seedID)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			writeError(w, http.StatusNotFound, "seed not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	seed.SupportedEnvironments = environmentNames(s.cfg.Environments)
+	writeJSON(w, http.StatusOK, seed)
 }
 
 func (s *API) handleDashboard(w http.ResponseWriter, r *http.Request) {
@@ -167,10 +274,21 @@ func (s *API) handleDashboard(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *API) handleEnvironmentActions(w http.ResponseWriter, r *http.Request) {
-	// expected: /api/v1/environments/{name}/run
+	// expected:
+	// - /api/v1/environments/{name}/run
+	// - /api/v1/environments/{name}/seeds/plan
+	// - /api/v1/environments/{name}/seeds/apply
 	trimmed := strings.TrimPrefix(r.URL.Path, "/api/v1/environments/")
 	parts := strings.Split(strings.Trim(trimmed, "/"), "/")
-	if len(parts) != 2 || parts[1] != "run" {
+	if len(parts) != 2 && len(parts) != 3 {
+		writeError(w, http.StatusNotFound, "unknown route")
+		return
+	}
+	if len(parts) == 2 && parts[1] != "run" {
+		writeError(w, http.StatusNotFound, "unknown route")
+		return
+	}
+	if len(parts) == 3 && (parts[1] != "seeds" || (parts[2] != "plan" && parts[2] != "apply")) {
 		writeError(w, http.StatusNotFound, "unknown route")
 		return
 	}
@@ -191,7 +309,131 @@ func (s *API) handleEnvironmentActions(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "environment not found")
 		return
 	}
+	if len(parts) == 3 {
+		s.runSeedsForEnvironment(w, r, env, parts[2])
+		return
+	}
 	s.runMigrationsForEnvironment(w, r, env)
+}
+
+func (s *API) runSeedsForEnvironment(w http.ResponseWriter, r *http.Request, env EnvironmentConfig, action string) {
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+
+	req := runRequest{}
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+
+	fsys, fsDir, err := s.resolveSeedFS()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	db, err := sql.Open(env.Driver, env.DSN)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, fmt.Sprintf("sql open: %v", err))
+		return
+	}
+	defer db.Close()
+	if err := db.PingContext(ctx); err != nil {
+		writeError(w, http.StatusBadGateway, fmt.Sprintf("ping: %v", err))
+		return
+	}
+	dialect, err := parseDialect(env.Dialect)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	plan, err := pactmigrate.PlanRequiredSeeds(ctx, db, fsys, fsDir, dialect)
+	if err != nil {
+		writeError(w, http.StatusConflict, fmt.Sprintf("seed plan: %v", err))
+		return
+	}
+	if action == "plan" {
+		planID := s.rememberSeedPlan(env.Name)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"kind":                   "seed",
+			"mode":                   "plan",
+			"plan_id":                planID,
+			"request_id":             requestID(),
+			"environment":            env.Name,
+			"seed_count":             plan.SeedCount,
+			"insert_count":           plan.InsertCount,
+			"update_count":           plan.UpdateCount,
+			"validation_issue_count": plan.ValidationIssues,
+			"entries":                plan.Entries,
+		})
+		return
+	}
+
+	if env.Policies.RequirePlanBeforeApply && !s.isSeedPlanAccepted(env.Name, req.PlanID) {
+		writeJSON(w, http.StatusPreconditionFailed, map[string]any{
+			"error":                "plan required before apply",
+			"required":             true,
+			"mode":                 "apply",
+			"expected_plan_action": "POST /api/v1/environments/{name}/seeds/plan",
+		})
+		return
+	}
+
+	started := time.Now()
+	result, applyErr := pactmigrate.ApplyRequiredSeeds(ctx, db, fsys, fsDir, dialect)
+	finished := time.Now()
+	record := runRecord{
+		ID:             fmt.Sprintf("%s-seeds-%d", env.Name, time.Now().UnixNano()),
+		RequestID:      requestID(),
+		Environment:    env.Name,
+		Kind:           "seed",
+		Target:         "required",
+		Status:         "succeeded",
+		Mode:           "apply",
+		PlanID:         req.PlanID,
+		StartedAt:      started.UTC(),
+		FinishedAt:     finished.UTC(),
+		DurationMillis: finished.Sub(started).Milliseconds(),
+	}
+	if result != nil {
+		record.PlannedCount = result.InsertCount + result.UpdateCount
+		record.AppliedCount = result.AppliedCount
+		record.RemainingCount = 0
+	}
+	if s.cfg.Auth.Enabled {
+		if a, ok := actorFromContext(r.Context()); ok {
+			record.ActorID = a.ID
+			record.ActorRoles = strings.Join(a.Roles, ",")
+		}
+	}
+	if applyErr != nil {
+		record.Status = "failed"
+		record.Error = applyErr.Error()
+	}
+	auditErr := persistRunRecord(ctx, env, record)
+	if applyErr != nil {
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"kind":            "seed",
+			"status":          "failed",
+			"error":           applyErr.Error(),
+			"mode":            "apply",
+			"audit_persisted": auditErr == nil,
+			"audit_error":     errorText(auditErr),
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"kind":             "seed",
+		"status":           "succeeded",
+		"mode":             "apply",
+		"environment":      env.Name,
+		"seed_count":       result.SeedCount,
+		"insert_count":     result.InsertCount,
+		"update_count":     result.UpdateCount,
+		"applied_count":    result.AppliedCount,
+		"entries":          result.Entries,
+		"audit_persisted":  auditErr == nil,
+		"audit_error":      errorText(auditErr),
+	})
 }
 
 func (s *API) runMigrationsForEnvironment(w http.ResponseWriter, r *http.Request, env EnvironmentConfig) {
